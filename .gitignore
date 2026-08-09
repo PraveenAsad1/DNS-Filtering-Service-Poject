@@ -1,0 +1,35 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python (for later phases)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment / secrets
+.env
+application-local.yml
+*.db
+
+# Build artifacts
+*.jar
+!gradle/wrapper/gradle-wrapper.jar

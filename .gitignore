@@ -34,3 +34,4 @@ application-local.yml
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
 app/dns_filter.db
+app/dns_filter.db

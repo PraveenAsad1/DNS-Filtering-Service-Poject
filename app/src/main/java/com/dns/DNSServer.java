@@ -20,12 +20,14 @@ public class DNSServer {
     private static final int BUFFER_SIZE = 512;
     private static final int SINKHOLE_TTL = 300;
 
-    // domains above this score get sinkholed, injected from application.yml
     @Value("${dns.filter.threat-threshold}")
     private double threatThreshold;
 
     @Autowired
     private MLClient mlClient;
+
+    @Autowired
+    private QueryLogRepository queryLogRepository; // handles saving each query to SQLite
 
     private static final List<String> BLOCKLIST = Arrays.asList(
             "badguy.com",
@@ -61,23 +63,33 @@ public class DNSServer {
             System.out.println("Query received for: " + cleanDomain);
 
             byte[] responseData;
+            boolean blocked;
+            double score = 0.0;
+            String blockReason = null;
 
             if (BLOCKLIST.contains(cleanDomain)) {
                 System.out.println("BLOCKED (blocklist): " + cleanDomain);
                 responseData = buildSinkholeResponse(query);
+                blocked = true;
+                blockReason = "blocklist";
 
             } else {
-                // not on the static blocklist — ask the heuristic scoring service
-                double score = mlClient.analyzeDomain(cleanDomain);
+                score = mlClient.analyzeDomain(cleanDomain);
                 System.out.println("Heuristic score for " + cleanDomain + ": " + score);
 
                 if (score > threatThreshold) {
                     System.out.println("BLOCKED (heuristic score): " + cleanDomain);
                     responseData = buildSinkholeResponse(query);
+                    blocked = true;
+                    blockReason = "heuristic";
                 } else {
                     responseData = forwardToUpstream(requestData);
+                    blocked = false;
                 }
             }
+
+            // persist this query to SQLite — survives restarts, unlike console output
+            queryLogRepository.save(new QueryLog(cleanDomain, blocked, score, blockReason));
 
             DatagramPacket responsePacket = new DatagramPacket(
                     responseData, responseData.length, clientAddress, clientPort

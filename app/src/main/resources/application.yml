@@ -1,5 +1,15 @@
 dns:
   filter:
-    threat-threshold: 0.7   # domains scoring above this are blocked
+    threat-threshold: 0.7
   ml-service:
-    url: http://localhost:8001/analyze   # heuristic scoring service endpoint
+    url: http://localhost:8001/analyze
+
+spring:
+  datasource:
+    url: jdbc:sqlite:dns_filter.db   # creates a local SQLite file in the project root
+    driver-class-name: org.sqlite.JDBC
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: update   # auto-creates/updates tables based on our entity classes
+    show-sql: true        # prints generated SQL to console — useful while learning, remove later if noisy

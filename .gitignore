@@ -33,3 +33,4 @@ application-local.yml
 # Build artifacts
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+app/dns_filter.db

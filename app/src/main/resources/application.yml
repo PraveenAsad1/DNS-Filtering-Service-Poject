@@ -1,0 +1,5 @@
+dns:
+  filter:
+    threat-threshold: 0.7   # domains scoring above this are blocked
+  ml-service:
+    url: http://localhost:8001/analyze   # heuristic scoring service endpoint

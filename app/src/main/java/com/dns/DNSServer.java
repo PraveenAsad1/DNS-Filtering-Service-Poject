@@ -1,5 +1,7 @@
 package com.dns;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.xbill.DNS.*;
 
@@ -16,10 +18,15 @@ public class DNSServer {
     private static final String UPSTREAM_DNS = "8.8.8.8";
     private static final int UPSTREAM_PORT = 53;
     private static final int BUFFER_SIZE = 512;
-    private static final int SINKHOLE_TTL = 300; // how long (seconds) clients should cache the fake answer
+    private static final int SINKHOLE_TTL = 300;
 
-    // Hardcoded blocklist for now — Phase 2 first pass.
-    // Later this could come from a file or a real threat-feed source.
+    // domains above this score get sinkholed, injected from application.yml
+    @Value("${dns.filter.threat-threshold}")
+    private double threatThreshold;
+
+    @Autowired
+    private MLClient mlClient;
+
     private static final List<String> BLOCKLIST = Arrays.asList(
             "badguy.com",
             "malware.example.com",
@@ -49,7 +56,6 @@ public class DNSServer {
         try {
             Message query = new Message(requestData);
             String domain = query.getQuestion().getName().toString();
-            // dnsjava keeps the trailing dot (e.g. "badguy.com.") — strip it for clean comparison
             String cleanDomain = domain.replaceAll("\\.$", "").toLowerCase();
 
             System.out.println("Query received for: " + cleanDomain);
@@ -57,10 +63,20 @@ public class DNSServer {
             byte[] responseData;
 
             if (BLOCKLIST.contains(cleanDomain)) {
-                System.out.println("BLOCKED: " + cleanDomain);
+                System.out.println("BLOCKED (blocklist): " + cleanDomain);
                 responseData = buildSinkholeResponse(query);
+
             } else {
-                responseData = forwardToUpstream(requestData);
+                // not on the static blocklist — ask the heuristic scoring service
+                double score = mlClient.analyzeDomain(cleanDomain);
+                System.out.println("Heuristic score for " + cleanDomain + ": " + score);
+
+                if (score > threatThreshold) {
+                    System.out.println("BLOCKED (heuristic score): " + cleanDomain);
+                    responseData = buildSinkholeResponse(query);
+                } else {
+                    responseData = forwardToUpstream(requestData);
+                }
             }
 
             DatagramPacket responsePacket = new DatagramPacket(
@@ -73,14 +89,12 @@ public class DNSServer {
         }
     }
 
-    // Builds a fake DNS response pointing the blocked domain to 0.0.0.0
     private byte[] buildSinkholeResponse(Message query) throws Exception {
-        Message response = new Message(query.getHeader().getID()); // same query ID as the request
-        response.getHeader().setFlag(Flags.QR); // mark this as a response, not a query
-        response.getHeader().setFlag(Flags.RA); // recursion available (matches normal DNS server behavior)
-        response.addRecord(query.getQuestion(), Section.QUESTION); // echo back the original question
+        Message response = new Message(query.getHeader().getID());
+        response.getHeader().setFlag(Flags.QR);
+        response.getHeader().setFlag(Flags.RA);
+        response.addRecord(query.getQuestion(), Section.QUESTION);
 
-        // Build the "answer": this domain name -> 0.0.0.0
         Name queriedName = query.getQuestion().getName();
         ARecord sinkholeRecord = new ARecord(
                 queriedName,
@@ -90,7 +104,7 @@ public class DNSServer {
         );
         response.addRecord(sinkholeRecord, Section.ANSWER);
 
-        return response.toWire(); // serialize back to raw bytes to send over UDP
+        return response.toWire();
     }
 
     private byte[] forwardToUpstream(byte[] queryData) throws Exception {

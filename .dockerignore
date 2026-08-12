@@ -1,0 +1,10 @@
+.git
+.gradle
+build
+app/build
+app/dns_filter.db
+venv
+python-ml/venv
+python-ml/__pycache__
+*.db
+.vscode

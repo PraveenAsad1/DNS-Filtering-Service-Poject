@@ -1,0 +1,25 @@
+services:
+  python-ml:
+    build: ./python-ml
+    ports:
+      - "8001:8001"
+    networks:
+      - dns-net
+
+  java-backend:
+    build: .
+    ports:
+      - "1053:1053/udp"
+      - "8080:8080"
+    environment:
+      # overrides the localhost default in application.yml — "python-ml" is resolved
+      # by Docker's internal DNS to the python-ml container's IP on this network
+      ML_SERVICE_URL: http://python-ml:8001/analyze
+    depends_on:
+      - python-ml
+    networks:
+      - dns-net
+
+networks:
+  dns-net:
+    driver: bridge

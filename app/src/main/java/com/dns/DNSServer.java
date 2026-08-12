@@ -21,15 +21,16 @@ public class DNSServer {
     private static final int SINKHOLE_TTL = 300;
 
     @Value("${dns.filter.threat-threshold}")
-    private double threatThreshold;
+    double threatThreshold;
 
     @Autowired
     private MLClient mlClient;
 
     @Autowired
-    private QueryLogRepository queryLogRepository; // handles saving each query to SQLite
+    private QueryLogRepository queryLogRepository;
 
-    private static final List<String> BLOCKLIST = Arrays.asList(
+    // package-private (not private) so DNSServerTest can reference it directly
+    static final List<String> BLOCKLIST = Arrays.asList(
             "badguy.com",
             "malware.example.com",
             "phishing-test.com"
@@ -57,8 +58,8 @@ public class DNSServer {
                               InetAddress clientAddress, int clientPort) {
         try {
             Message query = new Message(requestData);
-            String domain = query.getQuestion().getName().toString();
-            String cleanDomain = domain.replaceAll("\\.$", "").toLowerCase();
+            String rawDomain = query.getQuestion().getName().toString();
+            String cleanDomain = cleanDomain(rawDomain);
 
             System.out.println("Query received for: " + cleanDomain);
 
@@ -67,7 +68,7 @@ public class DNSServer {
             double score = 0.0;
             String blockReason = null;
 
-            if (BLOCKLIST.contains(cleanDomain)) {
+            if (isBlocklisted(cleanDomain)) {
                 System.out.println("BLOCKED (blocklist): " + cleanDomain);
                 responseData = buildSinkholeResponse(query);
                 blocked = true;
@@ -77,7 +78,7 @@ public class DNSServer {
                 score = mlClient.analyzeDomain(cleanDomain);
                 System.out.println("Heuristic score for " + cleanDomain + ": " + score);
 
-                if (score > threatThreshold) {
+                if (isAboveThreshold(score)) {
                     System.out.println("BLOCKED (heuristic score): " + cleanDomain);
                     responseData = buildSinkholeResponse(query);
                     blocked = true;
@@ -88,7 +89,6 @@ public class DNSServer {
                 }
             }
 
-            // persist this query to SQLite — survives restarts, unlike console output
             queryLogRepository.save(new QueryLog(cleanDomain, blocked, score, blockReason));
 
             DatagramPacket responsePacket = new DatagramPacket(
@@ -101,7 +101,23 @@ public class DNSServer {
         }
     }
 
-    private byte[] buildSinkholeResponse(Message query) throws Exception {
+    // ---- Pure logic, extracted for unit testing (no I/O, deterministic) ----
+
+    // dnsjava keeps the trailing dot (e.g. "badguy.com.") — strip it and lowercase for clean comparison
+    static String cleanDomain(String rawDomain) {
+        return rawDomain.replaceAll("\\.$", "").toLowerCase();
+    }
+
+    static boolean isBlocklisted(String cleanDomain) {
+        return BLOCKLIST.contains(cleanDomain);
+    }
+
+    boolean isAboveThreshold(double score) {
+        return score > threatThreshold;
+    }
+
+    // Builds a fake DNS response pointing the queried domain to 0.0.0.0
+    byte[] buildSinkholeResponse(Message query) throws Exception {
         Message response = new Message(query.getHeader().getID());
         response.getHeader().setFlag(Flags.QR);
         response.getHeader().setFlag(Flags.RA);
@@ -118,6 +134,8 @@ public class DNSServer {
 
         return response.toWire();
     }
+
+    // ---- I/O ----
 
     private byte[] forwardToUpstream(byte[] queryData) throws Exception {
         DatagramSocket upstreamSocket = new DatagramSocket();

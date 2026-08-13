@@ -35,3 +35,8 @@ application-local.yml
 !gradle/wrapper/gradle-wrapper.jar
 app/dns_filter.db
 build_log.txt
+benchmark/urlhaus_raw.txt
+benchmark/tranco.zip
+benchmark/umbrella_top1m.zip
+benchmark/umbrella_data/
+benchmark/tranco_data/

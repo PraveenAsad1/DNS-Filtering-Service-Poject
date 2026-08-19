@@ -1,5 +1,6 @@
 package com.dns;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -7,36 +8,60 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 @Service
 public class BlocklistService {
 
-    // Defaults to the live URLhaus feed; overridable via env var so held-out
-    // evaluation can point this at a filtered local snapshot instead.
-    private final String feedUrl = System.getenv().getOrDefault(
-            "BLOCKLIST_FEED_URL", "https://urlhaus.abuse.ch/downloads/hostfile/");
-
-    // Fallback list, used if the live feed can't be fetched at startup —
-    // ensures the proxy still has *some* blocklist even if the feed is down.
     private static final Set<String> FALLBACK_DOMAINS = new HashSet<>(Arrays.asList(
             "badguy.com",
             "malware.example.com",
             "phishing-test.com"
     ));
 
-    private Set<String> blocklist = Collections.unmodifiableSet(FALLBACK_DOMAINS);
+    // Defaults to the live URLhaus feed; overridable via env var for held-out evaluation.
+    private final String feedUrl = System.getenv().getOrDefault(
+            "BLOCKLIST_FEED_URL", "https://urlhaus.abuse.ch/downloads/hostfile/");
+
+    @Autowired
+    private BlocklistEntryRepository blocklistEntryRepository;
+
+    // In-memory cache for fast O(1) lookup during actual query handling —
+    // the DB is the source of truth, this is just the runtime-hot copy of it.
+    private Set<String> blocklistCache = Collections.emptySet();
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    // Fetches the live URLhaus threat feed and replaces the in-memory blocklist.
-    // Called once at startup; falls back to the hardcoded list on any failure.
+    // Called once at startup. Tries the live feed first; falls back to whatever
+    // was last persisted in the DB; falls back further to the hardcoded list
+    // only if the DB has never been populated (e.g. first run with no network).
     public void refreshFromLiveFeed() {
+        Set<String> liveDomains = fetchLiveFeed();
+
+        if (!liveDomains.isEmpty()) {
+            persistFreshFeed(liveDomains);
+            blocklistCache = liveDomains;
+            System.out.println("Blocklist refreshed from live feed: " + liveDomains.size() + " domains loaded and persisted");
+            return;
+        }
+
+        System.err.println("Live feed unavailable — falling back to last known good blocklist from DB");
+        Set<String> persisted = loadFromDatabase();
+
+        if (!persisted.isEmpty()) {
+            blocklistCache = persisted;
+            System.out.println("Loaded " + persisted.size() + " domains from DB (last known good)");
+            return;
+        }
+
+        System.err.println("No persisted blocklist found — using hardcoded fallback list");
+        persistFreshFeed(FALLBACK_DOMAINS, "fallback");
+        blocklistCache = FALLBACK_DOMAINS;
+    }
+
+    private Set<String> fetchLiveFeed() {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(feedUrl))
@@ -45,20 +70,13 @@ public class BlocklistService {
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            Set<String> parsed = parseHostfileFormat(response.body());
-
-            if (!parsed.isEmpty()) {
-                blocklist = Collections.unmodifiableSet(parsed);
-                System.out.println("Blocklist refreshed from live feed: " + blocklist.size() + " domains loaded");
-            } else {
-                System.err.println("Live feed returned no parseable domains — keeping fallback blocklist");
-            }
+            return parseHostfileFormat(response.body());
         } catch (Exception e) {
-            System.err.println("Failed to fetch live threat feed, using fallback blocklist: " + e.getMessage());
+            System.err.println("Failed to fetch live threat feed: " + e.getMessage());
+            return Collections.emptySet();
         }
     }
 
-    // URLhaus hostfile format: "127.0.0.1<TAB>domain.com" per line, "#" comment lines
     Set<String> parseHostfileFormat(String rawContent) {
         Set<String> domains = new HashSet<>();
         for (String line : rawContent.split("\n")) {
@@ -73,11 +91,31 @@ public class BlocklistService {
         return domains;
     }
 
+    private void persistFreshFeed(Set<String> domains) {
+        persistFreshFeed(domains, "urlhaus");
+    }
+
+    private void persistFreshFeed(Set<String> domains, String source) {
+        // clear out old entries from this source, then bulk-insert the fresh set
+        blocklistEntryRepository.deleteBySource(source);
+        for (String domain : domains) {
+            blocklistEntryRepository.save(new BlocklistEntry(domain, source));
+        }
+    }
+
+    private Set<String> loadFromDatabase() {
+        Set<String> domains = new HashSet<>();
+        for (BlocklistEntry entry : blocklistEntryRepository.findAll()) {
+            domains.add(entry.getDomain());
+        }
+        return domains;
+    }
+
     public boolean isBlocked(String cleanDomain) {
-        return blocklist.contains(cleanDomain);
+        return blocklistCache.contains(cleanDomain);
     }
 
     public int size() {
-        return blocklist.size();
+        return blocklistCache.size();
     }
 }

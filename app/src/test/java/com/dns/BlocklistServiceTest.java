@@ -57,14 +57,15 @@ class BlocklistServiceTest {
     }
 
     @Test
-    void isBlocked_usesFallbackListBeforeRefresh() {
-        // before refreshFromLiveFeed() is ever called, the fallback list should be active
-        assertTrue(blocklistService.isBlocked("badguy.com"));
+    void isBlocked_returnsFalseForAnyDomainBeforeRefresh() {
+        // blocklistCache starts empty until refreshFromLiveFeed() actually runs —
+        // no silent fallback state that could mask whether refresh happened
+        assertFalse(blocklistService.isBlocked("badguy.com"));
         assertFalse(blocklistService.isBlocked("google.com"));
     }
 
     @Test
-    void size_reflectsFallbackListInitially() {
-        assertEquals(3, blocklistService.size());
+    void size_isZeroBeforeRefresh() {
+        assertEquals(0, blocklistService.size());
     }
 }

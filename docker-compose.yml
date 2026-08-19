@@ -18,6 +18,10 @@ services:
       # defaults to the live URLhaus feed; can be overridden from the shell
       # (e.g. for held-out evaluation against a filtered local snapshot)
       BLOCKLIST_FEED_URL: ${BLOCKLIST_FEED_URL:-https://urlhaus.abuse.ch/downloads/hostfile/}
+    volumes:
+      # persists the SQLite database file outside the container's writable layer,
+      # so query logs and the blocklist table survive container recreation
+      - dns-data:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -28,3 +32,6 @@ services:
 networks:
   dns-net:
     driver: bridge
+
+volumes:
+  dns-data:

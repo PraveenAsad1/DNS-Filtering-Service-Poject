@@ -15,6 +15,11 @@ services:
       # overrides the localhost default in application.yml — "python-ml" is resolved
       # by Docker's internal DNS to the python-ml container's IP on this network
       ML_SERVICE_URL: http://python-ml:8001/analyze
+      # defaults to the live URLhaus feed; can be overridden from the shell
+      # (e.g. for held-out evaluation against a filtered local snapshot)
+      BLOCKLIST_FEED_URL: ${BLOCKLIST_FEED_URL:-https://urlhaus.abuse.ch/downloads/hostfile/}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - python-ml
     networks:

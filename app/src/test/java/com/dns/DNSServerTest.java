@@ -34,24 +34,6 @@ class DNSServerTest {
         assertEquals("google.com", DNSServer.cleanDomain("google.com"));
     }
 
-    // --- isBlocklisted ---
-
-    @Test
-    void isBlocklisted_returnsTrueForKnownBadDomain() {
-        assertTrue(DNSServer.isBlocklisted("badguy.com"));
-    }
-
-    @Test
-    void isBlocklisted_returnsFalseForCleanDomain() {
-        assertFalse(DNSServer.isBlocklisted("google.com"));
-    }
-
-    @Test
-    void isBlocklisted_isCaseSensitive_soCallerMustLowercaseFirst() {
-        // documents the contract: cleanDomain() must run before isBlocklisted()
-        assertFalse(DNSServer.isBlocklisted("BADGUY.COM"));
-    }
-
     // --- isAboveThreshold ---
 
     @Test

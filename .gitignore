@@ -40,3 +40,5 @@ benchmark/tranco.zip
 benchmark/umbrella_top1m.zip
 benchmark/umbrella_data/
 benchmark/tranco_data/
+benchmark/ingest_blocklist.txt
+benchmark/heldout_eval.txt

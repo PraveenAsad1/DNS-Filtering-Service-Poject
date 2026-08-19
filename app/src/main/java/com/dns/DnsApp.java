@@ -13,16 +13,20 @@ public class DnsApp {
         SpringApplication.run(DnsApp.class, args);
     }
 
-    // Starts the DNS listener on its own thread once Spring has fully booted,
-    // so it doesn't block the main app / web server thread
     @Bean
-    public CommandLineRunner startDnsServer(@Autowired DNSServer dnsServer) {
-        return args -> new Thread(() -> {
-            try {
-                dnsServer.start();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }).start();
+    public CommandLineRunner startDnsServer(@Autowired DNSServer dnsServer,
+                                             @Autowired BlocklistService blocklistService) {
+        return args -> {
+            // fetch the live threat feed once at startup, before accepting any queries
+            blocklistService.refreshFromLiveFeed();
+
+            new Thread(() -> {
+                try {
+                    dnsServer.start();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }).start();
+        };
     }
 }

@@ -8,8 +8,6 @@ import org.xbill.DNS.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
-import java.util.Arrays;
-import java.util.List;
 
 @Service
 public class DNSServer {
@@ -29,16 +27,16 @@ public class DNSServer {
     @Autowired
     private QueryLogRepository queryLogRepository;
 
-    // package-private (not private) so DNSServerTest can reference it directly
-    static final List<String> BLOCKLIST = Arrays.asList(
-            "badguy.com",
-            "malware.example.com",
-            "phishing-test.com"
-    );
+    @Autowired
+    private BlocklistService blocklistService;
+
+    @Autowired
+    private TyposquatDetector typosquatDetector;
 
     public void start() throws Exception {
         DatagramSocket serverSocket = new DatagramSocket(LISTEN_PORT);
-        System.out.println("DNS Server listening on UDP port " + LISTEN_PORT);
+        System.out.println("DNS Server listening on UDP port " + LISTEN_PORT
+                + " (blocklist size: " + blocklistService.size() + ")");
 
         byte[] receiveBuffer = new byte[BUFFER_SIZE];
 
@@ -68,11 +66,19 @@ public class DNSServer {
             double score = 0.0;
             String blockReason = null;
 
-            if (isBlocklisted(cleanDomain)) {
+            String typosquatMatch = typosquatDetector.checkTyposquat(cleanDomain);
+
+            if (blocklistService.isBlocked(cleanDomain)) {
                 System.out.println("BLOCKED (blocklist): " + cleanDomain);
                 responseData = buildSinkholeResponse(query);
                 blocked = true;
                 blockReason = "blocklist";
+
+            } else if (typosquatMatch != null) {
+                System.out.println("BLOCKED (typosquat of " + typosquatMatch + "): " + cleanDomain);
+                responseData = buildSinkholeResponse(query);
+                blocked = true;
+                blockReason = "typosquat:" + typosquatMatch;
 
             } else {
                 score = mlClient.analyzeDomain(cleanDomain);
@@ -101,22 +107,14 @@ public class DNSServer {
         }
     }
 
-    // ---- Pure logic, extracted for unit testing (no I/O, deterministic) ----
-
-    // dnsjava keeps the trailing dot (e.g. "badguy.com.") — strip it and lowercase for clean comparison
     static String cleanDomain(String rawDomain) {
         return rawDomain.replaceAll("\\.$", "").toLowerCase();
-    }
-
-    static boolean isBlocklisted(String cleanDomain) {
-        return BLOCKLIST.contains(cleanDomain);
     }
 
     boolean isAboveThreshold(double score) {
         return score > threatThreshold;
     }
 
-    // Builds a fake DNS response pointing the queried domain to 0.0.0.0
     byte[] buildSinkholeResponse(Message query) throws Exception {
         Message response = new Message(query.getHeader().getID());
         response.getHeader().setFlag(Flags.QR);
@@ -134,8 +132,6 @@ public class DNSServer {
 
         return response.toWire();
     }
-
-    // ---- I/O ----
 
     private byte[] forwardToUpstream(byte[] queryData) throws Exception {
         DatagramSocket upstreamSocket = new DatagramSocket();

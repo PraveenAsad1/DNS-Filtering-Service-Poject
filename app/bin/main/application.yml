@@ -1,0 +1,17 @@
+dns:
+  filter:
+    threat-threshold: 0.7
+  ml-service:
+    # Defaults to localhost for local dev; Docker Compose overrides this
+    # to the service name "python-ml" so containers can reach each other by name.
+    url: ${ML_SERVICE_URL:http://localhost:8001/analyze}
+
+spring:
+  datasource:
+    url: jdbc:sqlite:dns_filter.db?journal_mode=WAL&synchronous=NORMAL
+    driver-class-name: org.sqlite.JDBC
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true

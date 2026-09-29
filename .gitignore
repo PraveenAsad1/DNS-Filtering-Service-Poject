@@ -1,3 +1,10 @@
+# Java compiled files
+*.class
+
+# Build output
+bin/
+target/
+
 # Gradle
 .gradle/
 build/
